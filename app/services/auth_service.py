@@ -13,7 +13,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-TEST_OTP_CODE = "3333"
+TEST_OTP_CODE = "333333"
 
 
 class AuthService:
