@@ -1,0 +1,7 @@
+Generic single-database configuration with an async dbapi.
+
+Alembic will:
+- Detect all changes in the model schemas
+- Generate migrations automatically
+- Apply migrations to the database
+
