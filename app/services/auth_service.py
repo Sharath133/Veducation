@@ -13,6 +13,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+TEST_OTP_CODE = "3333"
+
 
 class AuthService:
     """Authentication service"""
@@ -29,7 +31,8 @@ class AuthService:
             raise ValueError("Invalid mobile number")
         
         # Generate OTP
-        otp_code = generate_otp(settings.OTP_LENGTH)
+        # otp_code = generate_otp(settings.OTP_LENGTH)
+        otp_code = TEST_OTP_CODE
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
         
         # Save OTP to database
@@ -130,7 +133,8 @@ class AuthService:
         if taken:
             raise ValueError("This mobile number is already registered")
 
-        otp_code = generate_otp(settings.OTP_LENGTH)
+        # otp_code = generate_otp(settings.OTP_LENGTH)
+        otp_code = TEST_OTP_CODE
         expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.OTP_EXPIRE_MINUTES)
 
         otp_record = OTPVerification(

@@ -13,7 +13,7 @@ class OTPRequest(BaseModel):
 class OTPVerify(BaseModel):
     """OTP Verify schema"""
     mobile_number: str = Field(..., min_length=10, max_length=15)
-    otp_code: str = Field(..., min_length=6, max_length=6)
+    otp_code: str = Field(..., min_length=4, max_length=6)
 
 
 class TokenResponse(BaseModel):
