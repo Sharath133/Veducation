@@ -19,7 +19,7 @@ from app.dependencies import get_current_admin
 from app.models.user import User
 from app.models.duel import DailyDuel, Registration
 from app.models.question import Question
-from app.models.leaderboard import UserAttempt
+from app.models.leaderboard import UserAnswer, UserAttempt
 from app.models.pyq import PYQ, PYQQuestion, PYQCategory, PYQSection, PYQSectionPDF
 from app.models.payment import Payment
 from app.models.support_ticket import SupportTicket
@@ -129,6 +129,26 @@ class QuestionCreate(BaseModel):
     marks: int = Field(default=1, ge=1)
     negative_marks: Decimal = Field(default=0.25, ge=0)
     question_order: int
+    explanation_en: Optional[str] = None
+    explanation_te: Optional[str] = None
+
+
+class QuestionUpdate(BaseModel):
+    """Update question request"""
+    question_text_en: Optional[str] = None
+    question_text_te: Optional[str] = None
+    option_a_en: Optional[str] = None
+    option_a_te: Optional[str] = None
+    option_b_en: Optional[str] = None
+    option_b_te: Optional[str] = None
+    option_c_en: Optional[str] = None
+    option_c_te: Optional[str] = None
+    option_d_en: Optional[str] = None
+    option_d_te: Optional[str] = None
+    correct_answer: Optional[str] = Field(None, pattern="^[ABCD]$")
+    marks: Optional[int] = Field(None, ge=1)
+    negative_marks: Optional[Decimal] = Field(None, ge=0)
+    question_order: Optional[int] = None
     explanation_en: Optional[str] = None
     explanation_te: Optional[str] = None
 
@@ -576,6 +596,82 @@ async def delete_duel(
 
 # ==================== QUESTION MANAGEMENT FOR DUELS ====================
 
+def _serialize_duel_question(question: Question) -> dict:
+    return {
+        "id": str(question.id),
+        "duel_id": str(question.duel_id),
+        "question_text_en": question.question_text_en,
+        "question_text_te": question.question_text_te,
+        "option_a_en": question.option_a_en,
+        "option_a_te": question.option_a_te,
+        "option_b_en": question.option_b_en,
+        "option_b_te": question.option_b_te,
+        "option_c_en": question.option_c_en,
+        "option_c_te": question.option_c_te,
+        "option_d_en": question.option_d_en,
+        "option_d_te": question.option_d_te,
+        "correct_answer": question.correct_answer,
+        "marks": question.marks,
+        "negative_marks": float(question.negative_marks),
+        "question_order": question.question_order,
+        "created_at": question.created_at.isoformat() if question.created_at else None,
+    }
+
+
+def _get_duel_or_404(db: Session, duel_id: str) -> tuple[uuid.UUID, DailyDuel]:
+    try:
+        duel_uuid = uuid.UUID(duel_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid duel_id format")
+
+    duel = db.query(DailyDuel).filter(DailyDuel.id == duel_uuid).first()
+    if not duel:
+        raise HTTPException(status_code=404, detail="Duel not found")
+    return duel_uuid, duel
+
+
+def _get_duel_question_or_404(
+    db: Session,
+    duel_uuid: uuid.UUID,
+    question_id: str,
+) -> Question:
+    try:
+        question_uuid = uuid.UUID(question_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid question_id format")
+
+    question = db.query(Question).filter(
+        Question.id == question_uuid,
+        Question.duel_id == duel_uuid,
+    ).first()
+    if not question:
+        raise HTTPException(status_code=404, detail="Question not found")
+    return question
+
+
+@router.get("/duels/{duel_id}/questions")
+async def list_duel_questions(
+    duel_id: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """List all questions for a duel."""
+    duel_uuid, duel = _get_duel_or_404(db, duel_id)
+    questions = db.query(Question).filter(
+        Question.duel_id == duel_uuid,
+    ).order_by(Question.question_order, Question.created_at).all()
+
+    return {
+        "duel": {
+            "id": str(duel.id),
+            "duel_date": duel.duel_date,
+            "status": duel.status,
+            "total_questions": duel.total_questions,
+        },
+        "questions": [_serialize_duel_question(q) for q in questions],
+    }
+
+
 @router.post("/duels/{duel_id}/questions")
 async def add_question_to_duel(
     duel_id: str,
@@ -616,10 +712,61 @@ async def add_question_to_duel(
     db.refresh(question)
     
     return {
-        "id": str(question.id),
-        "question_order": question.question_order,
-        "message": "Question added successfully"
+        "message": "Question added successfully",
+        "question": _serialize_duel_question(question),
     }
+
+
+@router.put("/duels/{duel_id}/questions/{question_id}")
+async def update_duel_question(
+    duel_id: str,
+    question_id: str,
+    question_data: QuestionUpdate,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Edit a duel question, options, scoring, and correct answer."""
+    duel_uuid, _duel = _get_duel_or_404(db, duel_id)
+    question = _get_duel_question_or_404(db, duel_uuid, question_id)
+
+    updates = question_data.model_dump(exclude_unset=True)
+    for field, value in updates.items():
+        if value is not None:
+            setattr(question, field, value)
+
+    db.commit()
+    db.refresh(question)
+
+    return {
+        "message": "Question updated successfully",
+        "question": _serialize_duel_question(question),
+    }
+
+
+@router.delete("/duels/{duel_id}/questions/{question_id}")
+async def delete_duel_question(
+    duel_id: str,
+    question_id: str,
+    current_admin: User = Depends(get_current_admin),
+    db: Session = Depends(get_db),
+):
+    """Delete a duel question if no submitted answers reference it."""
+    duel_uuid, _duel = _get_duel_or_404(db, duel_id)
+    question = _get_duel_question_or_404(db, duel_uuid, question_id)
+
+    answers_count = db.query(func.count(UserAnswer.id)).filter(
+        UserAnswer.question_id == question.id,
+    ).scalar()
+    if answers_count > 0:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot delete a question that already has user answers. Edit it instead.",
+        )
+
+    db.delete(question)
+    db.commit()
+
+    return {"message": "Question deleted successfully"}
 
 
 def _upload_root() -> Path:
